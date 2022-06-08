@@ -10,6 +10,8 @@ final public class NetworkClient {
 	
 	private let jsonDecoder = JSONDecoder()
 	
+	private let jsonEncoder = JSONEncoder()
+	
 	private let unauthorized: (() -> Void)?
 	
 	public init(
@@ -30,6 +32,13 @@ public extension NetworkClient {
 	func request<ReturnType: Decodable>(_ endpoint: Endpoint<ReturnType>) async throws -> ReturnType  {
 		let data = try await data(for: endpoint)
 		return try self.jsonDecoder.decode(ReturnType.self, from: data)
+	}
+	
+	func requestPublisher<ReturnType: Decodable>(_ endpoint: Endpoint<ReturnType>) -> AnyPublisher<ReturnType, Swift.Error>  {
+		Future {
+			try await self.request(endpoint)
+		}
+		.eraseToAnyPublisher()
 	}
 	
 	func request(_ endpoint: Endpoint<Void>) async throws {
@@ -93,6 +102,21 @@ extension NetworkClient {
 			switch self {
 			case .unknownResponse: return "Response is not a `HTTPURLResponse`"
 			case .unknownStatusCode(let statusCode): return "Unknown statusCode: \(statusCode)"
+			}
+		}
+	}
+}
+
+extension Future where Failure == Error {
+	convenience init(operation: @escaping () async throws -> Output) {
+		self.init { promise in
+			Task {
+				do {
+					let output = try await operation()
+					promise(.success(output))
+				} catch {
+					promise(.failure(error))
+				}
 			}
 		}
 	}
